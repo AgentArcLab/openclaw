@@ -79,6 +79,7 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
           spanId: "00f067aa0ba902b7",
         }),
         nextCallId: () => "call-1",
+        contentCapture: { inputMessages: false, outputMessages: true },
       },
     );
 
@@ -141,6 +142,7 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
         model: "gpt-5.4",
         trace: createDiagnosticTraceContext(),
         nextCallId: () => "call-payload",
+        contentCapture: { inputMessages: true, outputMessages: true },
       },
     );
 
@@ -192,6 +194,7 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
           traceFlags: "01",
         }),
         nextCallId: () => "call-traceparent",
+        contentCapture: { inputMessages: true, outputMessages: true },
       },
     );
 
@@ -234,6 +237,7 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
         model: "sonnet-4.6",
         trace: createDiagnosticTraceContext(),
         nextCallId: () => "call-err",
+        contentCapture: { inputMessages: true, outputMessages: true },
       },
     );
 
@@ -272,6 +276,7 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
         model: "qwen/qwen3.5-9b",
         trace: createDiagnosticTraceContext(),
         nextCallId: () => "call-terminated",
+        contentCapture: { inputMessages: true, outputMessages: true },
       },
     );
 
@@ -314,6 +319,7 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
         model: "gpt-5.4",
         trace: createDiagnosticTraceContext(),
         nextCallId: () => "call-frozen",
+        contentCapture: { inputMessages: true, outputMessages: true },
       },
     );
 
@@ -358,6 +364,7 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
         transport: "http",
         trace: createDiagnosticTraceContext(),
         nextCallId: () => "call-hook",
+        contentCapture: { inputMessages: true, outputMessages: true },
       },
     );
 
@@ -421,6 +428,7 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
         model: "gpt-5.4",
         trace: createDiagnosticTraceContext(),
         nextCallId: () => "call-abandoned",
+        contentCapture: { inputMessages: true, outputMessages: true },
       },
     );
 
@@ -444,5 +452,108 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
       durationMs: expect.any(Number),
     });
     expect(events[1]).not.toHaveProperty("errorCategory");
+  });
+
+  it("respects contentCapture policy - omits inputMessages when disabled", async () => {
+    async function* stream() {
+      yield { type: "text_delta", delta: "output text" };
+    }
+    const requestPayload = {
+      input: [{ role: "user", content: "hello" }],
+      model: "gpt-5.4",
+    };
+    const wrapped = wrapStreamFnWithDiagnosticModelCallEvents(
+      ((
+        model: Parameters<StreamFn>[0],
+        _context: Parameters<StreamFn>[1],
+        options: Parameters<StreamFn>[2],
+      ) => {
+        options?.onPayload?.(requestPayload, model);
+        return stream();
+      }) as unknown as StreamFn,
+      {
+        runId: "run-1",
+        provider: "openai",
+        model: "gpt-5.4",
+        trace: createDiagnosticTraceContext(),
+        nextCallId: () => "call-no-input",
+        contentCapture: { inputMessages: false, outputMessages: true },
+      },
+    );
+
+    const events = await collectModelCallEvents(async () => {
+      const streamResult = await wrapped({} as never, {} as never, {} as never);
+      await drain(streamResult as unknown as AsyncIterable<unknown>);
+    });
+
+    const completed = events.find((e) => e.type === "model.call.completed");
+    expect(completed).toBeDefined();
+    expect(completed).not.toHaveProperty("inputMessages");
+    expect(completed).toHaveProperty("outputMessages");
+  });
+
+  it("respects contentCapture policy - omits outputMessages when disabled", async () => {
+    async function* stream() {
+      yield { type: "text_delta", delta: "output text" };
+    }
+    const requestPayload = {
+      input: [{ role: "user", content: "hello" }],
+      model: "gpt-5.4",
+    };
+    const wrapped = wrapStreamFnWithDiagnosticModelCallEvents(
+      ((
+        model: Parameters<StreamFn>[0],
+        _context: Parameters<StreamFn>[1],
+        options: Parameters<StreamFn>[2],
+      ) => {
+        options?.onPayload?.(requestPayload, model);
+        return stream();
+      }) as unknown as StreamFn,
+      {
+        runId: "run-1",
+        provider: "openai",
+        model: "gpt-5.4",
+        trace: createDiagnosticTraceContext(),
+        nextCallId: () => "call-no-output",
+        contentCapture: { inputMessages: true, outputMessages: false },
+      },
+    );
+
+    const events = await collectModelCallEvents(async () => {
+      const streamResult = await wrapped({} as never, {} as never, {} as never);
+      await drain(streamResult as unknown as AsyncIterable<unknown>);
+    });
+
+    const completed = events.find((e) => e.type === "model.call.completed");
+    expect(completed).toBeDefined();
+    expect(completed).not.toHaveProperty("outputMessages");
+    expect(completed).toHaveProperty("inputMessages");
+  });
+
+  it("captures output from normalized text_delta chunks", async () => {
+    async function* stream() {
+      yield { type: "text_delta", delta: "hello" };
+    }
+    const wrapped = wrapStreamFnWithDiagnosticModelCallEvents(
+      (() => stream()) as unknown as StreamFn,
+      {
+        runId: "run-1",
+        provider: "openai",
+        model: "gpt-5.4",
+        trace: createDiagnosticTraceContext(),
+        nextCallId: () => "call-text-delta",
+        contentCapture: { inputMessages: true, outputMessages: true },
+      },
+    );
+
+    const events = await collectModelCallEvents(async () => {
+      await drain(wrapped({} as never, {} as never, {} as never) as AsyncIterable<unknown>);
+    });
+
+    const completed = events.find((e) => e.type === "model.call.completed");
+    expect(completed).toMatchObject({
+      type: "model.call.completed",
+      outputMessages: ["hello"],
+    });
   });
 });
