@@ -19,6 +19,9 @@ export function isModelNotFoundErrorMessage(raw: string): boolean {
   if (/unknown model/i.test(msg)) {
     return true;
   }
+  if (/not supported model/i.test(msg)) {
+    return true;
+  }
   if (/model(?:[_\-\s])?not(?:[_\-\s])?found/i.test(msg)) {
     return true;
   }

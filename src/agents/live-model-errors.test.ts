@@ -33,6 +33,11 @@ describe("live model error helpers", () => {
     ).toBe(true);
     expect(
       isModelNotFoundErrorMessage(
+        '400 Provider returned error {"code":400,"message":"Param Incorrect","param":"Not supported model some-model-id"}',
+      ),
+    ).toBe(true);
+    expect(
+      isModelNotFoundErrorMessage(
         "404 The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.",
       ),
     ).toBe(true);

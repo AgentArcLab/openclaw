@@ -647,6 +647,13 @@ describe("failover-error", () => {
         message: "invalid model: openrouter/__invalid_test_model__",
       }),
     ).toBe("model_not_found");
+    expect(
+      resolveFailoverReasonFromError({
+        status: 400,
+        message:
+          'Provider returned error {"code":400,"message":"Param Incorrect","param":"Not supported model some-model-id"}',
+      }),
+    ).toBe("model_not_found");
   });
 
   it("treats HTTP 422 as format error", () => {
